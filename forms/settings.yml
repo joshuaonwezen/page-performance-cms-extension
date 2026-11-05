@@ -1,0 +1,40 @@
+sections:
+  - key: ga4
+    label: Google Analytics 4
+    elements:
+      - type: text
+        key: propertyId
+        label: Property ID
+        help: >-
+          The numeric GA4 property ID (Admin → Property details), not the G- measurement ID.
+      - type: secret
+        key: serviceAccountJson
+        label: Service account key (JSON)
+        help: >-
+          A Google Cloud service account key with the Analytics Data API enabled. Add the
+          service account's email as a Viewer on the property. Leave blank to keep the saved one.
+      - type: button
+        label: Save
+        action: saveGa4
+        style: primary
+  - key: fx
+    label: Feature Experimentation
+    elements:
+      - type: secret
+        key: apiToken
+        label: Personal access token
+        help: >-
+          Read access is enough: it lists the project's flags and reads experiment results.
+          Leave blank to keep the saved one.
+      - type: text
+        key: projectId
+        label: Project ID
+        help: The FX project whose SDK key the site runs.
+      - type: text
+        key: environmentKey
+        label: Environment key
+        help: The environment whose rules to show. Defaults to production.
+      - type: button
+        label: Save
+        action: saveFx
+        style: primary
