@@ -1,7 +1,7 @@
 meta:
   app_id: cms_page_performance
   display_name: Page performance
-  version: 0.0.1-dev.0
+  version: 0.0.1-dev.1
   vendor: optimizely
   summary: See the open page's GA4 traffic and the FX experiments that target it, without leaving the editor.
   support_url: https://www.optimizely.com
