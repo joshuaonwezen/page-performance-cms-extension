@@ -4,14 +4,14 @@ import {pagePaths} from '../../shared/routes';
 import type {Datafile} from './datafile';
 import {FxFlagListItem, pageExperiments, RuleDetail} from './fx';
 
-const FX = {token: 't', projectId: '23385830076', environmentKey: 'production', sdkKey: 'SdkKey12345'};
-const RESULTS_URL = 'https://app.optimizely.com/v2/projects/23385830076/results/9300002474516/experiments/9300003222778';
+const FX = {token: 't', projectId: '1234567890', environmentKey: 'production', sdkKey: 'SdkKey12345'};
+const RESULTS_URL = 'https://app.optimizely.com/v2/projects/1234567890/results/9300002474516/experiments/9300003222778';
 
 type Vars = Record<string, {type: string; default_value: string}>;
 const marker = (on: boolean) => ({type: 'boolean', default_value: String(on)});
 const route = (value: string) => ({type: 'string', default_value: value});
 
-// Shapes from GET /flags/v1/projects/{p}/flags (project 23385830076, 2026-11-05).
+// Shapes from GET /flags/v1/projects/{p}/flags (2026-11-05).
 function flag(key: string, vars: Vars, envEnabled: boolean, rules: RuleDetail[]): FxFlagListItem {
   return {key, name: key, variable_definitions: vars, environments: {production: {enabled: envEnabled, rules_detail: rules}}};
 }
@@ -62,7 +62,7 @@ const vars = (flagMarker: string, flagRoute: string, markerType = 'boolean') => 
 
 // Trimmed from the datafile of the site's SDK key: only running rules are in it.
 const DATAFILE: Datafile = {
-  projectId: '23385830076',
+  projectId: '1234567890',
   environmentKey: 'production',
   featureFlags: [
     {
@@ -97,7 +97,7 @@ const DATAFILE: Datafile = {
   ],
   rollouts: [
     {id: 'r1', experiments: []},
-    // A delivery (the homepage personas) is not an experiment.
+    // A delivery (personalization) is not an experiment.
     {id: 'r2', experiments: [{id: 'd1', key: 'business', status: 'Running', variations: [{id: 'y1', key: 'business', featureEnabled: true}]}]},
     {id: 'r3', experiments: []},
   ],
@@ -120,7 +120,7 @@ describe('pageExperiments with the site datafile', () => {
       trafficPercent: 50,
       primaryMetric: 'mb_cta_click',
       experimentId: '9300003300001',
-      flagUrl: 'https://app.optimizely.com/v2/projects/23385830076/flags/manage/savings_offer/rules/production',
+      flagUrl: 'https://app.optimizely.com/v2/projects/1234567890/flags/manage/savings_offer/rules/production',
     });
   });
 

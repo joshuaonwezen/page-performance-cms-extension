@@ -4,7 +4,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import type {FoundExperiment} from './fx';
 import {performance, resultsFor} from './performance';
 
-const FX = {token: 't', projectId: '23385830076', environmentKey: 'production', sdkKey: ''};
+const FX = {token: 't', projectId: '1234567890', environmentKey: 'production', sdkKey: ''};
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {status, headers: {'Content-Type': 'application/json'}});
@@ -29,7 +29,7 @@ const EXPERIMENT: FoundExperiment = {
   trafficPercent: 100,
   primaryMetric: null,
   resultsUrl: null,
-  flagUrl: 'https://app.optimizely.com/v2/projects/23385830076/flags/manage/hero_dual_cta/rules/production',
+  flagUrl: 'https://app.optimizely.com/v2/projects/1234567890/flags/manage/hero_dual_cta/rules/production',
   experimentId: '9300003237402',
 };
 
@@ -39,7 +39,7 @@ const HERO_RESULTS = {
   last_calculated_time: '2026-10-15T18:20:02.752000Z',
   metrics: [
     {
-      name: 'Mosey Bank - Hero CTA Click',
+      name: 'Example Bank - Hero CTA Click',
       results: {
         '1774514': {name: 'Dual CTA', samples: 5000, rate: 0.2004, is_baseline: false, lift: {value: 0.057, is_significant: false}},
         '1774513': {name: 'Single CTA (control)', samples: 5000, rate: 0.1896, is_baseline: true},
@@ -76,7 +76,7 @@ describe('resultsFor', () => {
     ]);
     const {results, resultsNote} = await resultsFor(FX, EXPERIMENT);
     expect(resultsNote).toBeNull();
-    expect(results?.metric).toBe('Mosey Bank - Hero CTA Click');
+    expect(results?.metric).toBe('Example Bank - Hero CTA Click');
     // No reach block: visitors is the sum of the samples.
     expect(results?.visitors).toBe(10000);
     expect(results?.variations.map((v) => [v.key, v.isBaseline])).toEqual([

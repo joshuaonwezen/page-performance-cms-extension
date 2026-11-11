@@ -13,7 +13,7 @@ const overrides = (route: string) => [
 ];
 
 const datafile = (status: string): Datafile => ({
-  projectId: '23385830076',
+  projectId: '1234567890',
   environmentKey: 'production',
   featureFlags: [{key: 'savings_offer', experimentIds: ['e1'], rolloutId: 'r1', variables}],
   experiments: [
