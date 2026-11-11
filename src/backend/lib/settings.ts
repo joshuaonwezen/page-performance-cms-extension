@@ -13,6 +13,8 @@ export type Ga4Settings = {
 
 export type FxSettings = {
   apiToken?: string;
+  /** The site's SDK key. Project and environment are read from its datafile on save. */
+  sdkKey?: string;
   projectId?: string;
   environmentKey?: string;
 };
@@ -44,11 +46,20 @@ export function toGa4Config(s: Ga4Settings): Ga4Config | null {
   return /^\d+$/.test(propertyId) && serviceAccount ? {propertyId, serviceAccount} : null;
 }
 
+/**
+ * Installs saved before the SDK key setting have a project ID and environment but no SDK
+ * key; they keep working, on the Flags API alone, until the settings are saved again.
+ */
 export function toFxConfig(s: FxSettings): FxConfig | null {
   const token = s.apiToken?.trim() ?? '';
   const projectId = s.projectId?.trim() ?? '';
   if (!token || !/^\d+$/.test(projectId)) return null;
-  return {token, projectId, environmentKey: s.environmentKey?.trim() || DEFAULT_ENVIRONMENT};
+  return {
+    token,
+    projectId,
+    environmentKey: s.environmentKey?.trim() || DEFAULT_ENVIRONMENT,
+    sdkKey: s.sdkKey?.trim() ?? '',
+  };
 }
 
 /** Each section is optional on its own: the sidebar shows what it has. */

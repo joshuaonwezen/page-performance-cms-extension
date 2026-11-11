@@ -16,7 +16,7 @@ runtime: node22-cms-ext
 functions:
   cms_extension:
     entry_point: CmsUiExtension
-    description: Reads GA4 (Data API) and FX (Flags API + experiment results) for the open page.
+    description: Reads GA4 (Data API) and FX (the site's datafile, Flags API and experiment results) for the open page.
     accepts: cms_ui_extension
 
 ui_extensions:

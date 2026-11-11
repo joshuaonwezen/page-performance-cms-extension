@@ -1,11 +1,11 @@
-import {Button, Group, Text} from '@optiaxiom/react';
+import {Group, Text} from '@optiaxiom/react';
 import {useEffect, useRef, useState, type KeyboardEvent, type PointerEvent} from 'react';
 
 // Small hand-built charts for the Performance sidebar, following the dataviz method:
 // one hue (validated: #2a78d6 light on #ffffff, #3987e5 dark on #1a1a19, both PASS),
 // 2px line + ~10% area wash, an 8px end dot with a 2px surface ring, hairline solid
-// grid, text in text tokens only, a crosshair tooltip, and a table view so the tooltip
-// never gates a value.
+// grid, text in text tokens only, a crosshair tooltip, and a table view (DailyTable) so
+// the tooltip never gates a value.
 
 export const CHART_STYLE = `
 .viz-root {
@@ -108,11 +108,34 @@ function useWidth(fallback: number) {
 const HEIGHT = 132;
 const PAD = {top: 10, right: 40, bottom: 20, left: 34};
 
-/** Daily views: one series, so no legend - the heading above names it. */
+/** The daily views as a table: every value the chart's tooltip shows, without hovering. */
+export function DailyTable({points}: {points: Array<{date: string; views: number}>}) {
+  return (
+    <table style={{borderCollapse: 'collapse', fontSize: 12, width: '100%'}}>
+      <thead>
+        <tr>
+          <th style={{textAlign: 'left', fontWeight: 600, padding: '2px 0'}}>Day</th>
+          <th style={{textAlign: 'right', fontWeight: 600, padding: '2px 0'}}>Views</th>
+        </tr>
+      </thead>
+      <tbody>
+        {points.map((p) => (
+          <tr key={p.date}>
+            <td style={{padding: '2px 0'}}>{shortDate(p.date)}</td>
+            <td style={{padding: '2px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums'}}>
+              {p.views.toLocaleString('en-US')}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/** Daily views: one series, so no legend - the label above names it. */
 export function TrendChart({points}: {points: Array<{date: string; views: number}>}) {
   const {ref, width} = useWidth(280);
   const [active, setActive] = useState<number | null>(null);
-  const [asTable, setAsTable] = useState(false);
 
   if (points.length < 2) return null;
 
@@ -142,100 +165,74 @@ export function TrendChart({points}: {points: Array<{date: string; views: number
   const tooltipLeft = active === null ? 0 : Math.min(Math.max(x(active) - 50, 0), width - 100);
 
   return (
-    <Group flexDirection="column" gap="4">
-      {asTable ? (
-        <table style={{borderCollapse: 'collapse', fontSize: 12, width: '100%'}}>
-          <thead>
-            <tr>
-              <th style={{textAlign: 'left', fontWeight: 600, padding: '2px 0'}}>Day</th>
-              <th style={{textAlign: 'right', fontWeight: 600, padding: '2px 0'}}>Views</th>
-            </tr>
-          </thead>
-          <tbody>
-            {points.map((p) => (
-              <tr key={p.date}>
-                <td style={{padding: '2px 0'}}>{shortDate(p.date)}</td>
-                <td style={{padding: '2px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums'}}>
-                  {p.views.toLocaleString('en-US')}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : (
+    <div
+      aria-label={`Daily page views, ${shortDate(points[0].date)} to ${shortDate(points[last].date)}. Use the arrow keys to read each day.`}
+      onBlur={() => setActive(null)}
+      onFocus={() => setActive(last)}
+      onKeyDown={onKey}
+      ref={ref}
+      role="img"
+      style={{position: 'relative', width: '100%', outlineOffset: 2}}
+      tabIndex={0}
+    >
+      <svg height={HEIGHT} style={{display: 'block'}} width={width}>
+        {ticks.map((t) => (
+          <g key={t}>
+            <line stroke="var(--viz-grid)" strokeWidth={1} x1={PAD.left} x2={width - PAD.right} y1={y(t)} y2={y(t)} />
+            <text fill="var(--viz-text-muted)" fontSize={10} textAnchor="end" x={PAD.left - 6} y={y(t) + 3}>
+              {compact(t)}
+            </text>
+          </g>
+        ))}
+        <path d={area} fill="var(--viz-series)" fillOpacity={0.1} />
+        <path d={line} fill="none" stroke="var(--viz-series)" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} />
+        <circle cx={x(last)} cy={y(points[last].views)} fill="var(--viz-series)" r={4} stroke="var(--viz-surface)" strokeWidth={2} />
+        <text fill="var(--viz-text)" fontSize={11} fontWeight={600} x={x(last) + 8} y={y(points[last].views) + 4}>
+          {compact(points[last].views)}
+        </text>
+        <text fill="var(--viz-text-muted)" fontSize={10} x={PAD.left} y={HEIGHT - 4}>
+          {shortDate(points[0].date)}
+        </text>
+        <text fill="var(--viz-text-muted)" fontSize={10} textAnchor="end" x={width - PAD.right} y={HEIGHT - 4}>
+          {shortDate(points[last].date)}
+        </text>
+        {point && active !== null && (
+          <g pointerEvents="none">
+            <line stroke="var(--viz-text-muted)" strokeWidth={1} x1={x(active)} x2={x(active)} y1={PAD.top} y2={y(0)} />
+            <circle cx={x(active)} cy={y(point.views)} fill="var(--viz-series)" r={4} stroke="var(--viz-surface)" strokeWidth={2} />
+          </g>
+        )}
+        <rect
+          fill="transparent"
+          height={plotH + PAD.top}
+          onPointerLeave={() => setActive(null)}
+          onPointerMove={onPointer}
+          width={plotW + 16}
+          x={PAD.left - 8}
+          y={0}
+        />
+      </svg>
+      {point && (
         <div
-          aria-label={`Daily page views, ${shortDate(points[0].date)} to ${shortDate(points[last].date)}. Use the arrow keys to read each day.`}
-          onBlur={() => setActive(null)}
-          onFocus={() => setActive(last)}
-          onKeyDown={onKey}
-          ref={ref}
-          role="img"
-          style={{position: 'relative', width: '100%', outlineOffset: 2}}
-          tabIndex={0}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: tooltipLeft,
+            width: 100,
+            padding: '4px 8px',
+            borderRadius: 4,
+            background: 'var(--viz-tooltip-bg)',
+            color: 'var(--viz-tooltip-text)',
+            fontSize: 12,
+            lineHeight: 1.3,
+            pointerEvents: 'none',
+          }}
         >
-          <svg height={HEIGHT} style={{display: 'block'}} width={width}>
-            {ticks.map((t) => (
-              <g key={t}>
-                <line stroke="var(--viz-grid)" strokeWidth={1} x1={PAD.left} x2={width - PAD.right} y1={y(t)} y2={y(t)} />
-                <text fill="var(--viz-text-muted)" fontSize={10} textAnchor="end" x={PAD.left - 6} y={y(t) + 3}>
-                  {compact(t)}
-                </text>
-              </g>
-            ))}
-            <path d={area} fill="var(--viz-series)" fillOpacity={0.1} />
-            <path d={line} fill="none" stroke="var(--viz-series)" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} />
-            <circle cx={x(last)} cy={y(points[last].views)} fill="var(--viz-series)" r={4} stroke="var(--viz-surface)" strokeWidth={2} />
-            <text fill="var(--viz-text)" fontSize={11} fontWeight={600} x={x(last) + 8} y={y(points[last].views) + 4}>
-              {compact(points[last].views)}
-            </text>
-            <text fill="var(--viz-text-muted)" fontSize={10} x={PAD.left} y={HEIGHT - 4}>
-              {shortDate(points[0].date)}
-            </text>
-            <text fill="var(--viz-text-muted)" fontSize={10} textAnchor="end" x={width - PAD.right} y={HEIGHT - 4}>
-              {shortDate(points[last].date)}
-            </text>
-            {point && active !== null && (
-              <g pointerEvents="none">
-                <line stroke="var(--viz-text-muted)" strokeWidth={1} x1={x(active)} x2={x(active)} y1={PAD.top} y2={y(0)} />
-                <circle cx={x(active)} cy={y(point.views)} fill="var(--viz-series)" r={4} stroke="var(--viz-surface)" strokeWidth={2} />
-              </g>
-            )}
-            <rect
-              fill="transparent"
-              height={plotH + PAD.top}
-              onPointerLeave={() => setActive(null)}
-              onPointerMove={onPointer}
-              width={plotW + 16}
-              x={PAD.left - 8}
-              y={0}
-            />
-          </svg>
-          {point && (
-            <div
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: tooltipLeft,
-                width: 100,
-                padding: '4px 8px',
-                borderRadius: 4,
-                background: 'var(--viz-tooltip-bg)',
-                color: 'var(--viz-tooltip-text)',
-                fontSize: 12,
-                lineHeight: 1.3,
-                pointerEvents: 'none',
-              }}
-            >
-              <div style={{fontWeight: 600}}>{point.views.toLocaleString('en-US')} views</div>
-              <div style={{opacity: 0.75}}>{shortDate(point.date)}</div>
-            </div>
-          )}
+          <div style={{fontWeight: 600}}>{point.views.toLocaleString('en-US')} views</div>
+          <div style={{opacity: 0.75}}>{shortDate(point.date)}</div>
         </div>
       )}
-      <Button appearance="subtle" onClick={() => setAsTable((v) => !v)} size="sm">
-        {asTable ? 'Show as chart' : 'Show as table'}
-      </Button>
-    </Group>
+    </div>
   );
 }
 

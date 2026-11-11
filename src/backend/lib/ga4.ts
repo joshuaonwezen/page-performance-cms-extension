@@ -1,7 +1,7 @@
-import {createSign} from 'node:crypto';
+import {createHash, createSign} from 'node:crypto';
 
 import type {Ga4Report, Ga4Totals} from '../../shared/types';
-import {requestJson} from './http';
+import {ApiError, requestJson} from './http';
 
 // GA4 Data API for the Performance sidebar. Authenticates as a service account with a
 // self-signed JWT (RS256 via node:crypto), so the app needs no Google SDK dependency.
@@ -9,7 +9,6 @@ import {requestJson} from './http';
 export interface ServiceAccount {
   client_email: string;
   private_key: string;
-  token_uri?: string;
 }
 
 export interface Ga4Config {
@@ -18,7 +17,9 @@ export interface Ga4Config {
 }
 
 const SCOPE = 'https://www.googleapis.com/auth/analytics.readonly';
-const DEFAULT_TOKEN_URI = 'https://oauth2.googleapis.com/token';
+// Always Google's token endpoint. A key file's token_uri is ignored: the app POSTs a
+// signed assertion there, so a pasted file must not be able to point it elsewhere.
+const TOKEN_URI = 'https://oauth2.googleapis.com/token';
 const DATA_API = 'https://analyticsdata.googleapis.com/v1beta';
 const TOKEN_LIFETIME_S = 3600;
 const RENEW_MARGIN_S = 300;
@@ -29,7 +30,7 @@ export function parseServiceAccount(json: string | undefined): ServiceAccount | 
     const parsed = JSON.parse(json) as Partial<ServiceAccount>;
     if (typeof parsed.client_email !== 'string' || typeof parsed.private_key !== 'string') return null;
     if (!parsed.private_key.includes('PRIVATE KEY')) return null;
-    return {client_email: parsed.client_email, private_key: parsed.private_key, token_uri: parsed.token_uri};
+    return {client_email: parsed.client_email, private_key: parsed.private_key};
   } catch {
     return null;
   }
@@ -43,7 +44,7 @@ export function signJwt(sa: ServiceAccount, nowS: number): string {
     JSON.stringify({
       iss: sa.client_email,
       scope: SCOPE,
-      aud: sa.token_uri || DEFAULT_TOKEN_URI,
+      aud: TOKEN_URI,
       iat: nowS,
       exp: nowS + TOKEN_LIFETIME_S,
     }),
@@ -55,23 +56,31 @@ export function signJwt(sa: ServiceAccount, nowS: number): string {
 // A function instance may serve several invocations; reuse its token until near expiry.
 const tokens = new Map<string, {token: string; expiresAt: number}>();
 
+// Keyed by the key itself, not just the account: a newly pasted key for the same account
+// gets its own token, so saving settings really tests the new key.
+const cacheKey = (sa: ServiceAccount) =>
+  createHash('sha256').update(sa.client_email).update('\n').update(sa.private_key).digest('hex');
+
 export async function accessToken(sa: ServiceAccount): Promise<string> {
   const nowS = Math.floor(Date.now() / 1000);
-  const cached = tokens.get(sa.client_email);
+  const key = cacheKey(sa);
+  const cached = tokens.get(key);
   if (cached && cached.expiresAt - RENEW_MARGIN_S > nowS) return cached.token;
 
   const body = new URLSearchParams({
     grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
     assertion: signJwt(sa, nowS),
   });
-  const result = await requestJson<{access_token: string; expires_in?: number}>(
-    'ga4',
-    'Google token',
-    sa.token_uri || DEFAULT_TOKEN_URI,
-    {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: body.toString()},
-  );
-  const token = result?.access_token ?? '';
-  tokens.set(sa.client_email, {token, expiresAt: nowS + (result?.expires_in ?? TOKEN_LIFETIME_S)});
+  const result = await requestJson<{access_token?: string; expires_in?: number}>('ga4', 'Google token', TOKEN_URI, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: body.toString(),
+  });
+  const token = result?.access_token;
+  if (typeof token !== 'string' || !token) {
+    throw new ApiError(502, 'ga4_unavailable', 'Google token: no access_token in the response.');
+  }
+  tokens.set(key, {token, expiresAt: nowS + (result?.expires_in ?? TOKEN_LIFETIME_S)});
   return token;
 }
 

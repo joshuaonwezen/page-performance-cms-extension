@@ -12,14 +12,18 @@ export class CallError extends Error {
   }
 }
 
+// Shown when the backend sends a code without a message. Plain sentences: editors read them.
 const FALLBACK_MESSAGES: Record<string, string> = {
   not_configured: 'The app is missing settings.',
-  fx_unauthorized: 'FX rejected the personal access token. Check it in the app settings.',
-  fx_rate_limited: 'FX is rate limiting requests. Try again in a moment.',
-  ga4_unauthorized: 'Google rejected the service account. Check the GA4 settings.',
-  internal_error: 'Something went wrong in the extension backend.',
-  backend_unreachable: 'The extension backend failed before answering. The app logs (ocp app logs) have the details.',
+  fx_unauthorized: 'Feature Experimentation refused the access token. Ask a CMS admin to check this app\'s settings.',
+  fx_rate_limited: 'Feature Experimentation is busy. Try again in a minute.',
+  ga4_unauthorized: 'Google Analytics refused the service account. Ask a CMS admin to check this app\'s settings.',
+  internal_error: 'Something went wrong in the extension. Try again in a moment.',
+  backend_unreachable: 'The extension didn\'t answer. Try again; if it keeps happening, ask a CMS admin to check the app.',
+  request_failed: 'The extension sent an answer it couldn\'t read. Try again in a moment.',
 };
+
+const GENERIC_MESSAGE = 'Something went wrong. Try again in a moment.';
 
 /** Calls one backend action; resolves with its result or throws CallError. */
 export async function call<A extends ActionName>(
@@ -35,9 +39,9 @@ export async function call<A extends ActionName>(
   const envelope = response.data as Envelope<ActionResults[A]> | undefined;
   if (envelope && typeof envelope === 'object' && 'ok' in envelope) {
     if (envelope.ok) return envelope.result;
-    throw new CallError(envelope.error, envelope.message || FALLBACK_MESSAGES[envelope.error] || envelope.error);
+    throw new CallError(envelope.error, envelope.message || FALLBACK_MESSAGES[envelope.error] || GENERIC_MESSAGE);
   }
-  throw new CallError('request_failed', `The extension backend answered HTTP ${response.statusCode}.`);
+  throw new CallError('request_failed', FALLBACK_MESSAGES.request_failed);
 }
 
 export function errorMessage(error: unknown): string {

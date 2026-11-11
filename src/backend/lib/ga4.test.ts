@@ -1,8 +1,8 @@
 import {createVerify, generateKeyPairSync} from 'node:crypto';
 
-import {describe, expect, it} from 'vitest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 
-import {buildReport, pagePathRegex, parseServiceAccount, signJwt, variantOf} from './ga4';
+import {accessToken, buildReport, pagePathRegex, parseServiceAccount, signJwt, variantOf} from './ga4';
 
 // GA4 FULL_REGEXP is RE2; these patterns use nothing RE2 lacks, so JS RegExp is a fair proxy.
 const matches = (path: string, locale: string, pagePath: string) => new RegExp(pagePathRegex(path, locale)).test(pagePath);
@@ -104,5 +104,53 @@ describe('service account JWT', () => {
     });
     const ok = createVerify('RSA-SHA256').update(`${header}.${claims}`).verify(publicKey, Buffer.from(signature, 'base64url'));
     expect(ok).toBe(true);
+  });
+
+  it('ignores a key file\'s token_uri', () => {
+    const sa = parseServiceAccount(
+      JSON.stringify({client_email: 'a@b.iam.gserviceaccount.com', private_key: pem, token_uri: 'https://evil.example/token'}),
+    );
+    expect(sa).toEqual({client_email: 'a@b.iam.gserviceaccount.com', private_key: pem});
+  });
+});
+
+describe('accessToken', () => {
+  const pemFor = () =>
+    generateKeyPairSync('rsa', {modulusLength: 2048}).privateKey.export({type: 'pkcs8', format: 'pem'}).toString();
+  const tokenResponse = (body: object) =>
+    new Response(JSON.stringify(body), {status: 200, headers: {'Content-Type': 'application/json'}});
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('always posts the assertion to Google, whatever the key file says', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(tokenResponse({access_token: 'ya29.x', expires_in: 3600}));
+    const json = JSON.stringify({client_email: 'c@d.iam.gserviceaccount.com', private_key: pemFor(), token_uri: 'https://evil.example/token'});
+    expect(await accessToken(parseServiceAccount(json)!)).toBe('ya29.x');
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0][0]).toBe('https://oauth2.googleapis.com/token');
+  });
+
+  it('throws on an answer without a token, and does not cache it', async () => {
+    const sa = {client_email: 'e@f.iam.gserviceaccount.com', private_key: pemFor()};
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(tokenResponse({}));
+    await expect(accessToken(sa)).rejects.toMatchObject({code: 'ga4_unavailable'});
+    fetchMock.mockResolvedValueOnce(tokenResponse({access_token: 'ya29.y'}));
+    expect(await accessToken(sa)).toBe('ya29.y');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('caches per key, so a newly pasted key for the same account is tried', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(tokenResponse({access_token: 'old'}))
+      .mockResolvedValueOnce(tokenResponse({access_token: 'new'}));
+    const email = 'g@h.iam.gserviceaccount.com';
+    const oldKey = {client_email: email, private_key: pemFor()};
+    expect(await accessToken(oldKey)).toBe('old');
+    expect(await accessToken(oldKey)).toBe('old');
+    expect(await accessToken({client_email: email, private_key: pemFor()})).toBe('new');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

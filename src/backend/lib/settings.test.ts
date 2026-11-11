@@ -16,11 +16,22 @@ describe('settings', () => {
     expect(await loadConfig()).toEqual({ga4: null, fx: null});
   });
 
-  it('needs a token and a numeric project for FX, defaulting the environment', () => {
+  it('reads the project and environment saved from the SDK key\'s datafile', async () => {
+    await storage.settings.put('fx', {apiToken: 't', sdkKey: 'SdkKey12345', projectId: '23385830076', environmentKey: 'development'});
+    expect((await loadConfig()).fx).toEqual({
+      token: 't',
+      projectId: '23385830076',
+      environmentKey: 'development',
+      sdkKey: 'SdkKey12345',
+    });
+  });
+
+  it('keeps installs saved before the SDK key working, defaulting the environment', () => {
     expect(toFxConfig({apiToken: 't', projectId: '23385830076'})).toEqual({
       token: 't',
       projectId: '23385830076',
       environmentKey: 'production',
+      sdkKey: '',
     });
     expect(toFxConfig({apiToken: 't', projectId: 'abc'})).toBeNull();
     expect(toFxConfig({projectId: '1'})).toBeNull();

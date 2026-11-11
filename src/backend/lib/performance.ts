@@ -1,80 +1,98 @@
+import {logger} from '@zaiusinc/app-sdk';
+
 import {normalizePath} from '../../shared/path';
-import type {ExperimentResults, PageExperiment, PerformanceResult} from '../../shared/types';
-import {FxConfig, listFlags, pageExperiments} from './fx';
-import {experimentResults} from './fxResults';
+import {pagePaths} from '../../shared/routes';
+import type {ActionParams, PageExperiment, PerformanceResult} from '../../shared/types';
+import {fetchDatafile} from './datafile';
+import {
+  experimentResults,
+  type FoundExperiment,
+  type FxConfig,
+  listFlags,
+  pageExperiments,
+  ruleVariationKeys,
+} from './fx';
 import {pageReport} from './ga4';
 import {ApiError} from './http';
+import {plainMessage} from './messages';
+import {type RawResults, summarizeResults} from './results';
 import type {LoadedConfig} from './settings';
 
-/** A request the UI can fix (bad input, wrong state) - answered as HTTP 400. */
-export class ActionError extends Error {
-  public readonly code: string;
-
-  public constructor(code: string, message: string) {
-    super(message);
-    this.name = 'ActionError';
-    this.code = code;
-  }
-}
-
-// Each results lookup is one FX call; a page rarely has more experiments than this.
+// Each results lookup is two FX calls; a page rarely has more experiments than this.
 const MAX_RESULTS_LOOKUPS = 5;
 
-function message(error: unknown): string {
-  return error instanceof ApiError || error instanceof ActionError ? error.message : 'Request failed.';
-}
+type ResultsAnswer = Pick<PageExperiment, 'results' | 'resultsNote'>;
 
-async function resultsFor(
-  fx: FxConfig,
-  experimentId: string | null,
-): Promise<{results: ExperimentResults | null; resultsError: string | null}> {
-  if (!experimentId) return {results: null, resultsError: 'No results yet: FX creates them the first time the rule starts.'};
+// Without the rule's variation keys, the results name variations by their FX names, so
+// a winner is still named.
+const byOwnName = (raw: RawResults | null) =>
+  new Map(Object.values(raw?.metrics?.[0]?.results ?? {}).map((v) => [v.name ?? '', v.name ?? '']));
+
+/** The primary metric's results. Anything FX can't answer is a note, not an error. */
+export async function resultsFor(fx: FxConfig, experiment: FoundExperiment): Promise<ResultsAnswer> {
+  if (!experiment.experimentId) {
+    return {results: null, resultsNote: 'Results appear once the experiment has started.'};
+  }
   try {
-    const results = await experimentResults(fx.token, experimentId);
-    return results ? {results, resultsError: null} : {results: null, resultsError: 'FX has no results for this rule yet.'};
+    const [raw, keyByName] = await Promise.all([
+      experimentResults(fx, experiment.experimentId),
+      ruleVariationKeys(fx, experiment.flagKey, experiment.ruleKey).catch(() => null),
+    ]);
+    const results = summarizeResults(raw, keyByName ?? byOwnName(raw));
+    return results
+      ? {results, resultsNote: null}
+      : {results: null, resultsNote: 'FX has no results for this experiment yet.'};
   } catch (error) {
-    // FX answers 400 "Invalid experiment configuration" for rules it can't compute.
-    return {results: null, resultsError: `FX couldn't compute results (${message(error)}).`};
+    // FX answers 400 "Invalid experiment configuration" for a rule it can't compute yet.
+    if (error instanceof ApiError && error.status === 400) {
+      return {results: null, resultsNote: 'FX can\'t compute results for this experiment yet. It needs a metric and some visitors.'};
+    }
+    logger.warn('FX results failed', experiment.flagKey, experiment.ruleKey, error);
+    return {results: null, resultsNote: `Couldn't load the results. ${plainMessage(error)}`};
   }
 }
 
-async function experimentsOn(fx: FxConfig, path: string): Promise<PageExperiment[]> {
-  const found = pageExperiments(await listFlags(fx), fx, path);
+async function experimentsOn(fx: FxConfig, paths: string[]): Promise<PageExperiment[]> {
+  const [datafile, flags] = await Promise.all([fx.sdkKey ? fetchDatafile(fx.sdkKey) : null, listFlags(fx)]);
   return Promise.all(
-    found.map(async ({experimentId, ...experiment}, i): Promise<PageExperiment> => {
-      const results =
+    pageExperiments(datafile, flags, fx, paths).map(async (found, i): Promise<PageExperiment> => {
+      const answer: ResultsAnswer =
         i < MAX_RESULTS_LOOKUPS
-          ? await resultsFor(fx, experimentId)
-          : {results: null, resultsError: 'Not loaded: too many experiments on this page.'};
-      return {...experiment, ...results};
+          ? await resultsFor(fx, found)
+          : {results: null, resultsNote: 'Not loaded: this page has more experiments than the panel reads at once.'};
+      const {experimentId: _experimentId, ...experiment} = found;
+      return {...experiment, ...answer};
     }),
   );
 }
 
+/** The editor sees a plain sentence; the raw status and body go to the app logs. */
+function failed(service: string, error: unknown): string {
+  logger.warn(`${service} failed`, error instanceof ApiError ? `${error.code}: ${error.message}` : error);
+  return plainMessage(error);
+}
+
 // Analytics and experiments load independently: a missing GA4 setup still shows the
 // experiments, and an FX outage still shows analytics.
-export async function performance(config: LoadedConfig, rawPath: unknown, rawLocale: unknown): Promise<PerformanceResult> {
-  if (typeof rawPath !== 'string' || !rawPath.startsWith('/')) {
-    throw new ActionError('missing_path', 'Open a page: this item has no URL on the site.');
-  }
-  const path = normalizePath(rawPath);
-  const locale = typeof rawLocale === 'string' && /^[a-z]{2}(-[A-Za-z]{2})?$/.test(rawLocale) ? rawLocale : 'en';
+export async function performance(config: LoadedConfig, params: ActionParams['performance']): Promise<PerformanceResult> {
+  const path = normalizePath(params.path);
+  const {locale} = params;
 
   const ga4Promise: Promise<PerformanceResult['ga4']> = config.ga4
     ? pageReport(config.ga4, path, locale).then(
         (report) => ({ok: true as const, report}),
-        (error: unknown) => ({ok: false as const, error: message(error)}),
+        (error: unknown) => ({ok: false as const, error: failed('GA4 report', error)}),
       )
-    : Promise.resolve({ok: false as const, error: 'Add a GA4 property and service account in the app settings to see traffic.'});
+    : Promise.resolve(null);
 
   const fx = config.fx;
   const experimentsPromise = fx
-    ? experimentsOn(fx, path).then(
+    ? experimentsOn(fx, pagePaths(path, locale)).then(
         (experiments) => ({experiments, experimentsError: null}),
-        (error: unknown) => ({experiments: [] as PageExperiment[], experimentsError: message(error)}),
+        (error: unknown) => ({experiments: [] as PageExperiment[], experimentsError: failed('FX experiments', error)}),
       )
     : Promise.resolve({experiments: [] as PageExperiment[], experimentsError: null});
 
   const [ga4, {experiments, experimentsError}] = await Promise.all([ga4Promise, experimentsPromise]);
-  return {path, ga4, experiments, experimentsError, fxConfigured: Boolean(fx), environmentKey: fx?.environmentKey ?? null};
+  return {path, ga4, experiments, experimentsError, fxConfigured: Boolean(fx)};
 }

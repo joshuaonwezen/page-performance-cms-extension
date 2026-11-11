@@ -24,16 +24,16 @@ sections:
         key: apiToken
         label: Personal access token
         help: >-
-          Read access is enough: it lists the project's flags and reads experiment results.
-          Leave blank to keep the saved one.
+          FX app → Profile → API Access → Generate new token. Read access is enough: it
+          lists the project's flags and reads experiment results. Leave blank to keep the
+          saved one.
       - type: text
-        key: projectId
-        label: Project ID
-        help: The FX project whose SDK key the site runs.
-      - type: text
-        key: environmentKey
-        label: Environment key
-        help: The environment whose rules to show. Defaults to production.
+        key: sdkKey
+        label: Site SDK key
+        help: >-
+          The SDK key your site decides with (optimizely-nextjs-demo: OPTIMIZELY_FX_SDK_KEY).
+          The project and environment are read from it, so the panel shows the experiments
+          your visitors actually get.
       - type: button
         label: Save
         action: saveFx

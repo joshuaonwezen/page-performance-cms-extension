@@ -10,10 +10,11 @@ import {
   Request as AppRequest,
 } from '@zaiusinc/app-sdk';
 
+import {fetchDatafile, isSdkKey} from '../lib/datafile';
 import {listEnvironments} from '../lib/fx';
 import {checkAccess, parseServiceAccount} from '../lib/ga4';
 import {ApiError} from '../lib/http';
-import {DEFAULT_ENVIRONMENT, FxSettings, Ga4Settings, readSection, toGa4Config} from '../lib/settings';
+import {FxSettings, Ga4Settings, readSection, toGa4Config} from '../lib/settings';
 
 function text(formData: SubmittedFormData, key: string): string {
   const value = formData[key];
@@ -97,33 +98,43 @@ export class Lifecycle extends AppLifecycle {
 
   private async saveFx(formData: SubmittedFormData, result: LifecycleSettingsResult) {
     const previous = await readSection<FxSettings>('fx');
-    const next: FxSettings = {
-      apiToken: text(formData, 'apiToken') || previous.apiToken || '',
-      projectId: text(formData, 'projectId'),
-      environmentKey: text(formData, 'environmentKey') || DEFAULT_ENVIRONMENT,
-    };
-    if (!next.apiToken) return result.addError('apiToken', 'Required.');
-    if (!/^\d+$/.test(next.projectId ?? '')) return result.addError('projectId', 'Numeric project ID required.');
+    const apiToken = text(formData, 'apiToken') || previous.apiToken || '';
+    const sdkKey = text(formData, 'sdkKey');
+    if (!apiToken) return result.addError('apiToken', 'Required.');
+    if (!isSdkKey(sdkKey)) return result.addError('sdkKey', 'Paste the SDK key your site uses.');
 
+    // The SDK key decides which project and environment the site reads, so take both
+    // from its datafile rather than asking for them.
+    let projectId: string;
+    let environmentKey: string;
     try {
-      const environments = await listEnvironments({token: next.apiToken, projectId: next.projectId!});
-      if (!environments.includes(next.environmentKey!)) {
-        return result.addError(
-          'environmentKey',
-          `Not in this project. Available: ${environments.join(', ') || 'none'}.`,
-        );
+      const datafile = await fetchDatafile(sdkKey, {fresh: true});
+      projectId = String(datafile.projectId);
+      environmentKey = datafile.environmentKey;
+    } catch (error) {
+      if (error instanceof ApiError && error.status < 500) {
+        return result.addError('sdkKey', 'No datafile for this SDK key. Check it in FX → Settings → Environments.');
+      }
+      throw error;
+    }
+
+    const next: FxSettings = {apiToken, sdkKey, projectId, environmentKey};
+    try {
+      const environments = await listEnvironments({token: apiToken, projectId});
+      if (!environments.includes(environmentKey)) {
+        return result.addError('apiToken', `This token can't see environment "${environmentKey}" of project ${projectId}.`);
       }
     } catch (error) {
-      if (error instanceof ApiError && (error.status === 401 || error.status === 403 || error.status === 404)) {
+      if (error instanceof ApiError && (error.code === 'fx_unauthorized' || error.code === 'fx_not_found')) {
         return result
-          .addError('apiToken', 'FX rejected this token for that project.')
-          .addToast('danger', 'FX rejected the token or project ID.');
+          .addError('apiToken', `FX rejected this token for project ${projectId}.`)
+          .addToast('danger', 'FX rejected the token for the SDK key\'s project.');
       }
       throw error;
     }
 
     await storage.settings.put('fx', {...next});
-    return result.addToast('success', 'Feature Experimentation settings saved.');
+    return result.addToast('success', `Saved. Showing experiments from project ${projectId}, environment ${environmentKey}.`);
   }
 
   public async onAuthorizationRequest(
