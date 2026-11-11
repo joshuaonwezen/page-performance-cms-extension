@@ -6,7 +6,7 @@ sections:
         key: propertyId
         label: Property ID
         help: >-
-          The numeric GA4 property ID (Admin → Property details), not the G- measurement ID.
+          The numeric GA4 property ID (GA4: Admin > Property details), not the G- measurement ID.
       - type: secret
         key: serviceAccountJson
         label: Service account key (JSON)
@@ -24,16 +24,15 @@ sections:
         key: apiToken
         label: Personal access token
         help: >-
-          FX app → Profile → API Access → Generate new token. Read access is enough: it
-          lists the project's flags and reads experiment results. Leave blank to keep the
-          saved one.
+          In FX: Profile > API Access > Generate new token. Read access is enough: it lists
+          the project's flags and reads experiment results. Leave blank to keep the saved one.
       - type: text
         key: sdkKey
         label: Site SDK key
         help: >-
-          The SDK key your site decides with (optimizely-nextjs-demo: OPTIMIZELY_FX_SDK_KEY).
-          The project and environment are read from it, so the panel shows the experiments
-          your visitors actually get.
+          The SDK key your site decides with (FX: Settings > Environments). The project and
+          environment are read from it, so the panel shows the experiments your visitors
+          actually get.
       - type: button
         label: Save
         action: saveFx

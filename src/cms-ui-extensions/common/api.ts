@@ -48,6 +48,13 @@ export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Request failed.';
 }
 
+// Errors only a CMS admin can fix (app settings): no Retry, a warning rather than an error.
+const ADMIN_FIXES = new Set(['not_configured']);
+
+export function needsAdmin(error: unknown): boolean {
+  return error instanceof CallError && ADMIN_FIXES.has(error.code);
+}
+
 export function isNotConfigured(error: unknown): boolean {
   return error instanceof CallError && error.code === 'not_configured';
 }
